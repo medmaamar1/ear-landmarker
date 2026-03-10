@@ -1,0 +1,17 @@
+# Data and Checkpoints
+data_audioear/
+checkpoints/
+results/
+ear_landmarker_final.keras
+tfjs_model/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# OS
+.DS_Store
+Thumbs.db
