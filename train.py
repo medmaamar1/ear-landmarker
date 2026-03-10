@@ -19,11 +19,12 @@ def build_model(input_shape=(128, 128, 3), num_landmarks=55):
         include_top=False,
         weights='imagenet'
     )
-    base_model.trainable = True
+    # Freeze the base model initially
+    base_model.trainable = False
     
     x = base_model(inputs)
     x = layers.GlobalAveragePooling2D()(x)
-    x = layers.Dropout(0.3)(x)
+    x = layers.Dropout(0.5)(x) # Increased dropout
     outputs = layers.Dense(num_landmarks * 2, activation='linear')(x)
     
     model = models.Model(inputs=inputs, outputs=outputs)
@@ -80,11 +81,34 @@ def train(data_dir=None):
         )
     ]
 
-    print(f"Starting training on {len(dataset.filenames)} images...")
+    # Stage 1: Warm-up (Frozen Base)
+    print("Stage 1: Warming up the head (Base Frozen)...")
     model.fit(
         train_gen,
         validation_data=val_gen,
-        epochs=EPOCHS,
+        epochs=10, # Fixed short warm-up
+        callbacks=callbacks
+    )
+
+    # Stage 2: Fine-tuning (Unfreeze Base)
+    print("Stage 2: Unfreezing base model for fine-tuning...")
+    # Unfreeze the base model
+    for layer in model.layers:
+        if layer.name == 'mobilenetv3_small': # The name of the base model layer
+             layer.trainable = True
+        
+    # Re-compile with a MUCH smaller learning rate
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5), # Very slow
+        loss='mse',
+        metrics=['mae']
+    )
+
+    print("Starting full fine-tuning...")
+    model.fit(
+        train_gen,
+        validation_data=val_gen,
+        epochs=EPOCHS - 10,
         callbacks=callbacks
     )
 
