@@ -1,26 +1,32 @@
 import os
 import tensorflow as tf
-from tensorflow.keras import layers, models
+from tensorflow.keras import layers, models, Input
 from dataset import EarDataset
+import numpy as np
+
+# Set seeds for reproducibility
+np.random.seed(42)
+tf.random.set_seed(42)
 
 def build_model(input_shape=(128, 128, 3), num_landmarks=55):
     """
     Builds a lightweight MobileNetV3-Small based coordinate regressor.
     """
+    inputs = Input(shape=input_shape)
+    
     base_model = tf.keras.applications.MobileNetV3Small(
         input_shape=input_shape,
         include_top=False,
         weights='imagenet'
     )
     base_model.trainable = True
-
-    model = models.Sequential([
-        layers.Input(shape=input_shape),
-        base_model,
-        layers.GlobalAveragePooling2D(),
-        layers.Dropout(0.3),
-        layers.Dense(num_landmarks * 2, activation='linear') # x, y for each landmark
-    ])
+    
+    x = base_model(inputs)
+    x = layers.GlobalAveragePooling2D()(x)
+    x = layers.Dropout(0.3)(x)
+    outputs = layers.Dense(num_landmarks * 2, activation='linear')(x)
+    
+    model = models.Model(inputs=inputs, outputs=outputs)
 
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
@@ -41,6 +47,10 @@ def train(data_dir=None):
     # Load dataset
     dataset = EarDataset(DATA_DIR, img_size=IMG_SIZE)
     train_gen, val_gen = dataset.get_generators(batch_size=BATCH_SIZE)
+
+    if len(dataset.filenames) == 0:
+        print("ERROR: No valid data found. Check your DATA_DIR and file extensions.")
+        return
 
     # Build and train
     model = build_model(input_shape=(IMG_SIZE, IMG_SIZE, 3))
