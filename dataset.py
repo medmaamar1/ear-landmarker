@@ -54,20 +54,43 @@ class EarGenerator(Sequence):
             
             img = cv2.imread(img_path)
             if img is None: continue
+            
+            # CRITICAL: Convert BGR to RGB for consistency with Browser/TF.js
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             h, w, _ = img.shape
             
-            # 2. Load Landmarks (Assumed x1 y1 x2 y2... or JSON)
+            # 2. Load Landmarks (Robust point collection)
+            lms = None
             lm_path = os.path.join(self.lm_dir, f + '.txt')
+            if not os.path.exists(lm_path):
+                lm_path = os.path.join(self.lm_dir, f + '.pts')
+                
             if os.path.exists(lm_path):
-                lms = np.loadtxt(lm_path).reshape(-1, 2)
+                try:
+                    raw = []
+                    with open(lm_path) as lf:
+                        for line in lf:
+                            parts = line.strip().split()
+                            if len(parts) >= 2:
+                                try:
+                                    raw.append([float(parts[0]), float(parts[1])])
+                                except: continue
+                    lms = np.array(raw)
+                    lms = lms[:55] # Ensure 55 landmarks
+                except: continue
             else:
-                # Fallback for JSON format if found in AudioEar2D
-                import json
-                with open(os.path.join(self.lm_dir, f + '.json')) as jf:
-                    data = json.load(jf)
-                    lms = np.array(data['landmarks']).reshape(-1, 2)
+                # Fallback for JSON
+                try:
+                    import json
+                    with open(os.path.join(self.lm_dir, f + '.json')) as jf:
+                        data = json.load(jf)
+                        pts = data.get('landmarks') or data.get('pts')
+                        lms = np.array(pts).reshape(-1, 2)[:55]
+                except: continue
 
-            # 3. Dynamic ROI Cropping (CRITICAL for matching browser ROI)
+            if lms is None or len(lms) < 55: continue
+
+            # 3. Dynamic ROI Cropping with JITTER
             # Find the bounding box of landmarks
             min_x, min_y = np.min(lms, axis=0)
             max_x, max_y = np.max(lms, axis=0)
@@ -75,17 +98,24 @@ class EarGenerator(Sequence):
             lm_w, lm_h = max_x - min_x, max_y - min_y
             
             # Add random padding (mimics the FaceMesh-based ear ROI)
-            pad_w = lm_w * np.random.uniform(0.2, 0.5)
-            pad_h = lm_h * np.random.uniform(0.2, 0.5)
+            # The FaceMesh ROI is usually a bit larger than the tight ear box
+            pad_w = lm_w * np.random.uniform(0.15, 0.45)
+            pad_h = lm_h * np.random.uniform(0.15, 0.45)
+            
+            # JITTER: Randomly shift the center (mimics noisy FaceMesh detection)
+            # This makes the model robust to crops that aren't perfectly centered
+            shift_x = lm_w * np.random.uniform(-0.1, 0.1)
+            shift_y = lm_h * np.random.uniform(-0.1, 0.1)
             
             # Final ROI box
-            roi_x1 = max(0, int(min_x - pad_w))
-            roi_y1 = max(0, int(min_y - pad_h))
-            roi_x2 = min(w, int(max_x + pad_w))
-            roi_y2 = min(h, int(max_y + pad_h))
+            roi_x1 = max(0, int(min_x - pad_w + shift_x))
+            roi_y1 = max(0, int(min_y - pad_h + shift_y))
+            roi_x2 = min(w, int(max_x + pad_w + shift_x))
+            roi_y2 = min(h, int(max_y + pad_h + shift_y))
             
             # Crop
             crop = img[roi_y1:roi_y2, roi_x1:roi_x2]
+            if crop.size == 0: continue
             crop_h, crop_w, _ = crop.shape
             
             # Normalize Landmarks relative to Crop [0, 1]
