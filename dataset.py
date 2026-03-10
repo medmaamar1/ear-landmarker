@@ -57,8 +57,9 @@ class EarGenerator(Sequence):
         self.batch_size = batch_size
         self.augment = augment
         
-    def __len__(self):
-        return int(np.ceil(len(self.indices) / float(self.batch_size)))
+    def on_epoch_end(self):
+        """Shuffle indices at the end of each epoch for better generalization."""
+        np.random.shuffle(self.indices)
     
     def __getitem__(self, idx):
         batch_idxs = self.indices[idx * self.batch_size:(idx + 1) * self.batch_size]
@@ -100,7 +101,7 @@ class EarGenerator(Sequence):
                     lms = lms[:55] # Ensure 55 landmarks
                 except: continue
             else:
-                # Fallback for JSON / LabelMe format (Specific to User's Kaggle Dataset)
+                # Fallback for JSON / LabelMe format
                 try:
                     import json
                     json_path = os.path.join(self.landmarks_dir, f + '.json')
@@ -108,16 +109,21 @@ class EarGenerator(Sequence):
                         with open(json_path) as jf:
                             data = json.load(jf)
                             
-                            # 1. Check for LabelMe 'shapes' structure
+                            # Check for LabelMe 'shapes' structure
                             if 'shapes' in data:
-                                # Aggregate points from all shapes, sorted by label
-                                shapes = sorted(data['shapes'], key=lambda s: s.get('label', ''))
+                                # USE NUMERICAL SORTING for labels to ensure exact point order
+                                def get_label_id(s):
+                                    label = s.get('label', '')
+                                    try: return int(label)
+                                    except: return label
+                                    
+                                shapes = sorted(data['shapes'], key=get_label_id)
                                 all_pts = []
                                 for s in shapes:
                                     all_pts.extend(s['points'])
                                 lms = np.array(all_pts).reshape(-1, 2)[:55]
                             else:
-                                # 2. Check for flat 'landmarks' or 'pts' keys
+                                # Check for flat 'landmarks' or 'pts' keys
                                 pts = data.get('landmarks') or data.get('pts') or data.get('points')
                                 if pts:
                                     lms = np.array(pts).reshape(-1, 2)[:55]
@@ -157,7 +163,6 @@ class EarGenerator(Sequence):
             Y.append(lms_norm.flatten().astype(np.float32))
             
         if not X:
-            # Emergency fallback: return a single zero sample to avoid shape crash
             return np.zeros((1, self.img_size, self.img_size, 3), dtype=np.float32), \
                    np.zeros((1, 110), dtype=np.float32)
 
