@@ -89,14 +89,29 @@ class EarGenerator(Sequence):
                     lms = lms[:55] # Ensure 55 landmarks
                 except: continue
             else:
-                # Fallback for JSON
+                # Fallback for JSON / LabelMe format (Specific to User's Kaggle Dataset)
                 try:
                     import json
-                    with open(os.path.join(self.lm_dir, f + '.json')) as jf:
-                        data = json.load(jf)
-                        pts = data.get('landmarks') or data.get('pts')
-                        lms = np.array(pts).reshape(-1, 2)[:55]
-                except: continue
+                    json_path = os.path.join(self.landmarks_dir, f + '.json')
+                    if os.path.exists(json_path):
+                        with open(json_path) as jf:
+                            data = json.load(jf)
+                            
+                            # 1. Check for LabelMe 'shapes' structure
+                            if 'shapes' in data:
+                                # Aggregate points from all shapes, sorted by label to maintain order (e.g., "0", "1", "2", "3")
+                                shapes = sorted(data['shapes'], key=lambda s: s.get('label', ''))
+                                all_pts = []
+                                for s in shapes:
+                                    all_pts.extend(s['points'])
+                                lms = np.array(all_pts).reshape(-1, 2)[:55]
+                            else:
+                                # 2. Check for flat 'landmarks' or 'pts' keys (Standard AudioEar2D)
+                                pts = data.get('landmarks') or data.get('pts') or data.get('points')
+                                if pts:
+                                    lms = np.array(pts).reshape(-1, 2)[:55]
+                except Exception as e:
+                    continue
 
             if lms is None or len(lms) < 55: continue
 
