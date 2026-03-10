@@ -15,6 +15,7 @@ def build_model(input_shape=(128, 128, 3), num_landmarks=55):
     base_model.trainable = True
 
     model = models.Sequential([
+        layers.Input(shape=input_shape),
         base_model,
         layers.GlobalAveragePooling2D(),
         layers.Dropout(0.3),

@@ -21,8 +21,18 @@ class EarDataset:
             self.images_dir = data_dir
             self.landmarks_dir = data_dir
             
-        self.filenames = [os.path.splitext(f)[0] for f in os.listdir(self.images_dir) if f.endswith(('.jpg', '.png'))]
+        print(f"Scanning {self.images_dir} for valid image/landmark pairs...")
+        all_img_files = [os.path.splitext(f)[0] for f in os.listdir(self.images_dir) if f.endswith(('.jpg', '.png'))]
         
+        # Filter: Only keep files that have both image and landmark
+        self.filenames = []
+        for f in all_img_files:
+            has_lm = any(os.path.exists(os.path.join(self.landmarks_dir, f + ext)) for ext in ['.txt', '.pts', '.json'])
+            if has_lm:
+                self.filenames.append(f)
+        
+        print(f"Found {len(self.filenames)} valid pairs out of {len(all_img_files)} images.")
+
     def get_generators(self, batch_size=32):
         indices = np.arange(len(self.filenames))
         np.random.shuffle(indices)
@@ -37,7 +47,8 @@ class EarDataset:
         return train_gen, val_gen
 
 class EarGenerator(Sequence):
-    def __init__(self, filenames, indices, img_dir, lm_dir, img_size, batch_size, augment=False):
+    def __init__(self, filenames, indices, img_dir, lm_dir, img_size, batch_size, augment=False, **kwargs):
+        super().__init__(**kwargs) # Required for Keras 3
         self.filenames = filenames
         self.indices = indices
         self.img_dir = img_dir
@@ -99,60 +110,55 @@ class EarGenerator(Sequence):
                             
                             # 1. Check for LabelMe 'shapes' structure
                             if 'shapes' in data:
-                                # Aggregate points from all shapes, sorted by label to maintain order (e.g., "0", "1", "2", "3")
+                                # Aggregate points from all shapes, sorted by label
                                 shapes = sorted(data['shapes'], key=lambda s: s.get('label', ''))
                                 all_pts = []
                                 for s in shapes:
                                     all_pts.extend(s['points'])
                                 lms = np.array(all_pts).reshape(-1, 2)[:55]
                             else:
-                                # 2. Check for flat 'landmarks' or 'pts' keys (Standard AudioEar2D)
+                                # 2. Check for flat 'landmarks' or 'pts' keys
                                 pts = data.get('landmarks') or data.get('pts') or data.get('points')
                                 if pts:
                                     lms = np.array(pts).reshape(-1, 2)[:55]
-                except Exception as e:
-                    continue
+                except: continue
 
             if lms is None or len(lms) < 55: continue
 
             # 3. Dynamic ROI Cropping with JITTER
-            # Find the bounding box of landmarks
             min_x, min_y = np.min(lms, axis=0)
             max_x, max_y = np.max(lms, axis=0)
-            
             lm_w, lm_h = max_x - min_x, max_y - min_y
             
-            # Add random padding (mimics the FaceMesh-based ear ROI)
-            # The FaceMesh ROI is usually a bit larger than the tight ear box
             pad_w = lm_w * np.random.uniform(0.15, 0.45)
             pad_h = lm_h * np.random.uniform(0.15, 0.45)
             
-            # JITTER: Randomly shift the center (mimics noisy FaceMesh detection)
-            # This makes the model robust to crops that aren't perfectly centered
             shift_x = lm_w * np.random.uniform(-0.1, 0.1)
             shift_y = lm_h * np.random.uniform(-0.1, 0.1)
             
-            # Final ROI box
             roi_x1 = max(0, int(min_x - pad_w + shift_x))
             roi_y1 = max(0, int(min_y - pad_h + shift_y))
             roi_x2 = min(w, int(max_x + pad_w + shift_x))
             roi_y2 = min(h, int(max_y + pad_h + shift_y))
             
-            # Crop
             crop = img[roi_y1:roi_y2, roi_x1:roi_x2]
             if crop.size == 0: continue
             crop_h, crop_w, _ = crop.shape
             
-            # Normalize Landmarks relative to Crop [0, 1]
             lms_norm = lms.copy()
             lms_norm[:, 0] = (lms[:, 0] - roi_x1) / crop_w
             lms_norm[:, 1] = (lms[:, 1] - roi_y1) / crop_h
             
             # 4. Final Preprocessing
             img_resized = cv2.resize(crop, (self.img_size, self.img_size))
-            img_normalized = img_resized / 255.0
+            img_normalized = img_resized.astype(np.float32) / 255.0
             
             X.append(img_normalized)
-            Y.append(lms_norm.flatten())
+            Y.append(lms_norm.flatten().astype(np.float32))
             
-        return np.array(X), np.array(Y)
+        if not X:
+            # Emergency fallback: return a single zero sample to avoid shape crash
+            return np.zeros((1, self.img_size, self.img_size, 3), dtype=np.float32), \
+                   np.zeros((1, 110), dtype=np.float32)
+
+        return np.array(X, dtype=np.float32), np.array(Y, dtype=np.float32)
