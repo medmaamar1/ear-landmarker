@@ -9,9 +9,19 @@ class EarDataset:
         self.data_dir = data_dir
         self.img_size = img_size
         self.test_split = test_split
-        self.images_dir = os.path.join(data_dir, 'images')
-        self.landmarks_dir = os.path.join(data_dir, 'landmarks')
-        self.filenames = [f.split('.')[0] for f in os.listdir(self.images_dir) if f.endswith(('.jpg', '.png'))]
+        
+        # Flexibly detect directory structure
+        potential_images_dir = os.path.join(data_dir, 'images')
+        potential_landmarks_dir = os.path.join(data_dir, 'landmarks')
+        
+        if os.path.exists(potential_images_dir):
+            self.images_dir = potential_images_dir
+            self.landmarks_dir = potential_landmarks_dir if os.path.exists(potential_landmarks_dir) else potential_images_dir
+        else:
+            self.images_dir = data_dir
+            self.landmarks_dir = data_dir
+            
+        self.filenames = [os.path.splitext(f)[0] for f in os.listdir(self.images_dir) if f.endswith(('.jpg', '.png'))]
         
     def get_generators(self, batch_size=32):
         indices = np.arange(len(self.filenames))

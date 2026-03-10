@@ -28,12 +28,14 @@ def build_model(input_shape=(128, 128, 3), num_landmarks=55):
     )
     return model
 
-def train():
+def train(data_dir=None):
     # Configuration
     IMG_SIZE = 128
     EPOCHS = 100
     BATCH_SIZE = 32
-    DATA_DIR = './data_audioear' # Updated to match AudioEar2D folder
+    
+    # Priority: 1. Argument, 2. Env Var, 3. Default
+    DATA_DIR = data_dir or os.environ.get('DATA_DIR') or './data_audioear' 
 
     # Load dataset
     dataset = EarDataset(DATA_DIR, img_size=IMG_SIZE)
