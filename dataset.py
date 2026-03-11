@@ -50,7 +50,7 @@ class EarDataset:
         val_gen = EarGenerator(self.filenames, val_idxs, self.images_dir, self.landmarks_dir, self.img_size, batch_size, augment=False)
         
         return train_gen, val_gen
-
+class EarGenerator(Sequence):
     def __init__(self, filenames, indices, img_dir, lm_dir, img_size, batch_size, augment=False, **kwargs):
         super().__init__(**kwargs)
         self.filenames = filenames
