@@ -131,8 +131,8 @@ class EarGenerator(Sequence):
             
             # 1. Spatial Augmentation (Rotation, Shift, Zoom)
             if self.augment:
-                # Rotation ±15 deg
-                angle = np.random.uniform(-15, 15)
+                # Rotation ±30 deg
+                angle = np.random.uniform(-30, 30)
                 # Zoom/Scale (0.9 to 1.1)
                 scale = np.random.uniform(0.9, 1.1)
                 # Translation/Shift (±10% of image size)
