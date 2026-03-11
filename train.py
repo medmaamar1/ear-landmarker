@@ -14,7 +14,7 @@ def build_model(input_shape=(128, 128, 3), num_landmarks=55):
     """
     inputs = Input(shape=input_shape)
     
-    base_model = tf.keras.applications.MobileNetV3Small(
+    base_model = tf.keras.applications.MobileNetV2(
         input_shape=input_shape,
         include_top=False,
         weights='imagenet'
@@ -94,7 +94,7 @@ def train(data_dir=None):
     print("Stage 2: Unfreezing base model for fine-tuning...")
     # Unfreeze the base model
     for layer in model.layers:
-        if layer.name == 'mobilenetv3_small': # The name of the base model layer
+        if 'mobilenetv2' in layer.name: # Robust name check
              layer.trainable = True
         
     # Re-compile with a MUCH smaller learning rate
@@ -113,9 +113,9 @@ def train(data_dir=None):
     )
 
     # Save final model
-    model.save('ear_landmarker_final.keras')
-    print("Training complete. Model saved as 'ear_landmarker_final.keras'.")
-    print("Next step: tensorflowjs_converter --input_format keras ear_landmarker_final.keras ./tfjs_model")
+    model.save('ear_landmarker_v2.keras')
+    print("Training complete. Model saved as 'ear_landmarker_v2.keras'.")
+    print("Next step: tensorflowjs_converter --input_format keras ear_landmarker_v2.keras ./tfjs_model")
 
 if __name__ == "__main__":
     train()
