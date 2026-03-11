@@ -11,7 +11,7 @@ np.random.seed(42)
 tf.random.set_seed(42)
 
 @tf.keras.utils.register_keras_serializable()
-def wing_loss(y_true, y_pred, w=10.0, epsilon=2.0):
+def wing_loss(y_true, y_pred, w=0.05, epsilon=0.01):
     """
     Wing Loss: designed for robust landmark regression.
     It is more sensitive to small errors than MSE/L2.
@@ -43,10 +43,11 @@ def build_model(input_shape=(224, 224, 3), num_landmarks=55):
     # Important: Some papers suggest keeping BN in inference mode during fine-tuning
     x = base_model(inputs, training=False)
     
-    # FLATTEN preserves spatial awareness much better than GlobalAveragePooling
+    # 1. Dimensionality Reduction: Drop from 576 channels to 128 to prevent a 29-Million parameter explosion!
+    x = layers.Conv2D(128, kernel_size=(1, 1), activation='relu')(x)
+    
+    # 2. FLATTEN preserves spatial awareness much better than GlobalAveragePooling
     x = layers.Flatten()(x)
-    x = layers.Dense(1024, activation='relu')(x)
-    x = layers.Dropout(0.3)(x) 
     x = layers.Dense(512, activation='relu')(x)
     x = layers.Dropout(0.3)(x) 
     outputs = layers.Dense(num_landmarks * 2, activation='sigmoid')(x)
