@@ -26,7 +26,7 @@ def wing_loss(y_true, y_pred, w=10.0, epsilon=2.0):
     )
     return tf.reduce_mean(loss, axis=-1)
 
-def build_model(input_shape=(128, 128, 3), num_landmarks=55):
+def build_model(input_shape=(224, 224, 3), num_landmarks=55):
     """
     Builds a high-precision landmark regressor using Flatten instead of GAP.
     """
@@ -45,6 +45,8 @@ def build_model(input_shape=(128, 128, 3), num_landmarks=55):
     
     # FLATTEN preserves spatial awareness much better than GlobalAveragePooling
     x = layers.Flatten()(x)
+    x = layers.Dense(1024, activation='relu')(x)
+    x = layers.Dropout(0.3)(x) 
     x = layers.Dense(512, activation='relu')(x)
     x = layers.Dropout(0.3)(x) 
     outputs = layers.Dense(num_landmarks * 2, activation='sigmoid')(x)

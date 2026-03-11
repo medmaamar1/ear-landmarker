@@ -109,7 +109,7 @@ def predict_ear(image_input, model_path=None, output_path_prefix=None):
     # 3. Predict
     print(f"Loading model: {model_path}")
     model = tf.keras.models.load_model(model_path, custom_objects={'wing_loss': wing_loss})
-    img_size = 128
+    img_size = 224
     h, w, _ = img.shape
     
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)

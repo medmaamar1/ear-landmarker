@@ -5,7 +5,7 @@ import tensorflow as tf
 from tensorflow.keras.utils import Sequence
 
 class EarDataset:
-    def __init__(self, data_dir, img_size=128, test_split=0.2):
+    def __init__(self, data_dir, img_size=224, test_split=0.2):
         self.data_dir = data_dir
         self.img_size = img_size
         self.test_split = test_split
