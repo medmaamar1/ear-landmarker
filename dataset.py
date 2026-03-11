@@ -105,7 +105,7 @@ class EarGenerator(Sequence):
             else:
                 try:
                     import json
-                    json_path = os.path.join(self.landmarks_dir, f + '.json')
+                    json_path = os.path.join(self.lm_dir, f + '.json')
                     if os.path.exists(json_path):
                         with open(json_path) as jf:
                             data = json.load(jf)
