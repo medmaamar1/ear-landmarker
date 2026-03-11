@@ -127,53 +127,31 @@ class EarGenerator(Sequence):
 
             if lms is None or len(lms) < 55: continue
 
-            # --- AUGMENTATION & CROPPING ---
+            # --- AUGMENTATION & NORMALIZATION ---
             
             # 1. Random Flip (Horizontal)
             do_flip = self.augment and np.random.random() > 0.5
             if do_flip:
                 img = cv2.flip(img, 1)
                 lms[:, 0] = w - lms[:, 0]
-                # Note: For specialized ear landmarks, order might need swapping if it's Left vs Right specific.
-                # However, for coordinate regression, the model will just learn the flipped pattern.
 
-            # 2. Random Crop / ROI with Jitter
-            min_x, min_y = np.min(lms, axis=0)
-            max_x, max_y = np.max(lms, axis=0)
-            lm_w, lm_h = max_x - min_x, max_y - min_y
-            
-            # Larger padding for more context variability
-            p_val = np.random.uniform(0.1, 0.5) if self.augment else 0.3
-            pad_w = lm_w * p_val
-            pad_h = lm_h * p_val
-            
-            # Jitter the center
-            s_val = np.random.uniform(-0.15, 0.15) if self.augment else 0
-            shift_x = lm_w * s_val
-            shift_y = lm_h * s_val
-            
-            roi_x1 = max(0, int(min_x - pad_w + shift_x))
-            roi_y1 = max(0, int(min_y - pad_h + shift_y))
-            roi_x2 = min(w, int(max_x + pad_w + shift_x))
-            roi_y2 = min(h, int(max_y + pad_h + shift_y))
-            
-            crop = img[roi_y1:roi_y2, roi_x1:roi_x2]
-            if crop.size == 0: continue
+            crop = img.copy()
             crop_h, crop_w, _ = crop.shape
             
-            # 3. Normalize Landmarks relative to current crop
+            # 2. Normalize Landmarks relative to FULL image dimensions (the camera frame)
+            # This teaches the AI to find the ear ANYWHERE in the frame, 
+            # exactly how the AR Try-On will feed it video frames!
             lms_norm = lms.copy()
-            lms_norm[:, 0] = (lms[:, 0] - roi_x1) / crop_w
-            lms_norm[:, 1] = (lms[:, 1] - roi_y1) / crop_h
+            lms_norm[:, 0] = lms[:, 0] / crop_w
+            lms_norm[:, 1] = lms[:, 1] / crop_h
             
-            # 4. Color Jitter (Brightness/Contrast)
+            # 3. Color Jitter (Brightness/Contrast)
             if self.augment:
-                # Brightness
                 alpha = np.random.uniform(0.8, 1.2) # contrast
                 beta = np.random.uniform(-20, 20)   # brightness
                 crop = cv2.convertScaleAbs(crop, alpha=alpha, beta=beta)
             
-            # 5. Resize
+            # 4. Resize
             img_resized = cv2.resize(crop, (self.img_size, self.img_size))
             X.append(img_resized.astype(np.float32) / 255.0)
             Y.append(lms_norm.flatten().astype(np.float32))
