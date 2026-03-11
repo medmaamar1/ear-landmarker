@@ -45,13 +45,13 @@ class EarDataset:
         train_idxs = indices[:split]
         val_idxs = indices[split:]
         
-        train_gen = EarGenerator(self.filenames, train_idxs, self.images_dir, self.landmarks_dir, self.img_size, batch_size)
-        val_gen = EarGenerator(self.filenames, val_idxs, self.images_dir, self.landmarks_dir, self.img_size, batch_size)
+        # Training gets augmentation, validation does not
+        train_gen = EarGenerator(self.filenames, train_idxs, self.images_dir, self.landmarks_dir, self.img_size, batch_size, augment=True)
+        val_gen = EarGenerator(self.filenames, val_idxs, self.images_dir, self.landmarks_dir, self.img_size, batch_size, augment=False)
         
         return train_gen, val_gen
 
-class EarGenerator(Sequence):
-    def __init__(self, filenames, indices, img_dir, lm_dir, img_size, batch_size, **kwargs):
+    def __init__(self, filenames, indices, img_dir, lm_dir, img_size, batch_size, augment=False, **kwargs):
         super().__init__(**kwargs)
         self.filenames = filenames
         self.indices = indices
@@ -59,6 +59,7 @@ class EarGenerator(Sequence):
         self.lm_dir = lm_dir
         self.img_size = img_size
         self.batch_size = batch_size
+        self.augment = augment
         
     def on_epoch_end(self):
         np.random.shuffle(self.indices)
@@ -178,8 +179,11 @@ class EarGenerator(Sequence):
             Y.append(lms_norm.flatten().astype(np.float32))
             
         if not X:
-            dummy_x = np.zeros((self.batch_size, self.img_size, self.img_size, 3), dtype=np.float32)
-            dummy_y = np.zeros((self.batch_size, 110), dtype=np.float32)
-            return (dummy_x, dummy_y)
+            # Instead of zeros, which ruins training, return the next batch
+            # or raise an error if this is a systemic issue.
+            # Returning a smaller batch is better than returning zeros.
+            print(f"WARNING: Batch at index {idx} was empty/invalid. Check your data paths.")
+            # Simple fallback: recurrence
+            return self.__getitem__((idx + 1) % len(self))
 
         return (np.array(X, dtype=np.float32), np.array(Y, dtype=np.float32))
