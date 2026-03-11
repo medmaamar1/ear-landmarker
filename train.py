@@ -14,7 +14,7 @@ def build_model(input_shape=(128, 128, 3), num_landmarks=55):
     """
     inputs = Input(shape=input_shape)
     
-    base_model = tf.keras.applications.MobileNetV2(
+    base_model = tf.keras.applications.MobileNetV3Small(
         input_shape=input_shape,
         include_top=False,
         weights='imagenet'
@@ -94,7 +94,7 @@ def train(data_dir=None):
     print("Stage 2: Unfreezing base model for fine-tuning...")
     # Unfreeze the base model
     for layer in model.layers:
-        if 'mobilenetv2' in layer.name: # Robust name check
+        if layer.name == 'mobilenetv3_small': # The name of the base model layer
              layer.trainable = True
         
     # Re-compile with a MUCH smaller learning rate
@@ -113,9 +113,32 @@ def train(data_dir=None):
     )
 
     # Save final model
-    model.save('ear_landmarker_v2.keras')
-    print("Training complete. Model saved as 'ear_landmarker_v2.keras'.")
-    print("Next step: tensorflowjs_converter --input_format keras ear_landmarker_v2.keras ./tfjs_model")
+    model.save('ear_landmarker_final.keras')
+    print("Training complete. Model saved as 'ear_landmarker_final.keras'.")
+
+    # --- VISUAL VERIFICATION STEP ---
+    print("\n--- Visual Verification ---")
+    os.makedirs('results', exist_ok=True)
+    
+    # Get a batch from the validation generator
+    val_images, val_lms = next(iter(val_gen))
+    preds = model.predict(val_images)
+    
+    # Save the first 5 predictions
+    for i in range(min(5, len(val_images))):
+        img = (val_images[i] * 255).astype(np.uint8)
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        
+        lms = preds[i].reshape(-1, 2)
+        for j, pt in enumerate(lms):
+            px, py = int(pt[0] * IMG_SIZE), int(pt[1] * IMG_SIZE)
+            color = (0, 0, 255) if j == 48 else (0, 255, 0) # Red for lobe point 48
+            cv2.circle(img, (px, py), 2, color, -1)
+            
+        cv2.imwrite(f'results/v_test_{i}.jpg', img)
+        print(f"Saved validation sample: results/v_test_{i}.jpg")
+    
+    print("Next step: tensorflowjs_converter --input_format keras ear_landmarker_final.keras ./tfjs_model")
 
 if __name__ == "__main__":
     train()
