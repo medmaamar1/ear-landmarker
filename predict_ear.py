@@ -5,57 +5,63 @@ import tensorflow as tf
 import sys
 import json
 
-def parse_json_landmarks(json_path):
+def load_ground_truth(json_path):
     """
-    Parses a LabelMe JSON file into a numpy array of landmarks.
+    Parses LabelMe JSON to get landmark coordinates.
     """
+    if not os.path.exists(json_path):
+        return None
+    
     try:
-        if not os.path.exists(json_path):
-            return None
-        with open(json_path) as jf:
-            data = json.load(jf)
-            if 'shapes' in data:
-                def get_label_id(s):
-                    label = s.get('label', '')
-                    try: return int(label)
-                    except: return 0
-                shapes = sorted(data['shapes'], key=get_label_id)
-                all_pts = []
-                for s in shapes:
-                    all_pts.extend(s['points'])
-                return np.array(all_pts).reshape(-1, 2)[:55]
-            else:
-                pts = data.get('landmarks') or data.get('pts') or data.get('points')
-                if pts:
-                    return np.array(pts).reshape(-1, 2)[:55]
+        with open(json_path) as f:
+            data = json.load(f)
+            
+        if 'shapes' in data:
+            # Sort shapes by label to ensure consistent order
+            def get_label_id(s):
+                label = s.get('label', '')
+                try: return int(label)
+                except: return 0
+            shapes = sorted(data['shapes'], key=get_label_id)
+            all_pts = []
+            for s in shapes:
+                all_pts.extend(s['points'])
+            return np.array(all_pts).reshape(-1, 2)
+        else:
+            pts = data.get('landmarks') or data.get('pts') or data.get('points')
+            if pts:
+                return np.array(pts).reshape(-1, 2)
     except Exception as e:
-        print(f"Warning: Failed to parse JSON at {json_path}: {e}")
+        print(f"Error loading JSON: {e}")
     return None
 
-def draw_landmarks(img, landmarks, color=(0, 255, 0), lobe_color=(0, 0, 255)):
+def draw_landmarks(image, landmarks, color_scheme='ai'):
     """
     Draws landmarks on an image.
+    color_scheme: 'ai' (Green/Red) or 'truth' (Blue/Yellow)
     """
-    vis_img = img.copy()
-    h, w, _ = vis_img.shape
+    vis = image.copy()
+    h, w, _ = vis.shape
+    
+    is_normalized = np.max(landmarks) <= 1.2 # heuristic to check if [0, 1] range
+    
     for i, pt in enumerate(landmarks):
-        # We assume coordinates are absolute pixel values
-        px, py = int(pt[0]), int(pt[1])
-        # If they look normalized (between 0 and 1), we scale them
-        if np.max(landmarks) <= 1.01:
-            px, py = int(pt[0] * w), int(pt[1] * h)
+        px = int(pt[0] * w) if is_normalized else int(pt[0])
+        py = int(pt[1] * h) if is_normalized else int(pt[1])
+        
+        if color_scheme == 'ai':
+            color = (0, 0, 255) if i == 48 else (0, 255, 0) # Red for lobe, Green for others
+        else:
+            color = (0, 255, 255) if i == 48 else (255, 0, 0) # Purple/Blue for truth
             
-        c = lobe_color if i == 48 else color
-        cv2.circle(vis_img, (px, py), max(2, w // 64), c, -1)
-    return vis_img
+        cv2.circle(vis, (px, py), max(2, w // 64), color, -1)
+    return vis
 
-def predict_ear(image_input, model_path=None, output_path=None):
+def predict_ear(image_input, model_path=None, output_path_prefix=None):
     """
-    Loads the trained Keras model, predicts landmarks on a single image.
-    Returns: (pred_vis_img, gt_vis_img)
-    gt_vis_img will be None if no matching JSON is found.
+    Loads model, predicts landmarks, and compares with JSON if available.
     """
-    # Use relative path from script location if model_path not provided or default used
+    # 1. Path Setup
     if model_path is None or model_path == 'ear_landmarker_final.keras':
         script_dir = os.path.dirname(os.path.abspath(__file__))
         model_path = os.path.join(script_dir, 'ear_landmarker_final.keras')
@@ -65,50 +71,71 @@ def predict_ear(image_input, model_path=None, output_path=None):
             model_path = 'ear_landmarker_final.keras'
         else:
             print(f"Error: Model not found at {model_path}.")
-            return None, None
+            return None
 
-    # Handle input type and ground truth detection
-    ground_truth = None
+    # 2. Input Handling
+    json_data = None
     name = "result"
+    
     if isinstance(image_input, str):
         if not os.path.exists(image_input):
             print(f"Error: Image not found at {image_input}")
-            return None, None
+            return None
         img = cv2.imread(image_input)
-        if img is None:
-            return None, None
-        
         base = os.path.basename(image_input)
-        name, ext = os.path.splitext(base)
+        name, _ = os.path.splitext(base)
+        
+        # Check for matching JSON
         json_path = os.path.join(os.path.dirname(image_input), name + ".json")
-        ground_truth = parse_json_landmarks(json_path)
+        json_data = load_ground_truth(json_path)
     else:
         img = image_input.copy()
 
-    # Model inference
+    if img is None:
+        print("Error: Could not decode image.")
+        return None
+
+    # 3. Predict
+    print(f"Loading model: {model_path}")
     model = tf.keras.models.load_model(model_path)
     img_size = 128
+    h, w, _ = img.shape
+    
     input_img = cv2.resize(img, (img_size, img_size))
     input_img_norm = input_img.astype(np.float32) / 255.0
     input_tensor = np.expand_dims(input_img_norm, axis=0)
+
+    print("Running inference...")
     preds = model.predict(input_tensor)[0]
-    landmarks_pred = preds.reshape(-1, 2)
+    landmarks_ai = preds.reshape(-1, 2)
 
-    # 1. Prediction Image (Green)
-    pred_vis = draw_landmarks(img, landmarks_pred)
-    pred_path = output_path if output_path else f"pred_{name}.jpg"
-    cv2.imwrite(pred_path, pred_vis)
-    print(f"Prediction saved: {pred_path}")
+    # 4. Generate Visuals
+    ai_vis = draw_landmarks(img, landmarks_ai, color_scheme='ai')
+    
+    output_files = []
+    
+    # Save AI Result
+    ai_out = f"pred_{name}.jpg"
+    cv2.imwrite(ai_out, ai_vis)
+    output_files.append(ai_out)
+    
+    # Save Truth Result if available
+    if json_data is not None:
+        truth_vis = draw_landmarks(img, json_data, color_scheme='truth')
+        truth_out = f"truth_{name}.jpg"
+        cv2.imwrite(truth_out, truth_vis)
+        output_files.append(truth_out)
+        print(f"Ground truth found! Saved comparison: {truth_out}")
+        
+        # Optional: Combine them side-by-side
+        combined = np.hstack((truth_vis, ai_vis))
+        comb_out = f"compare_{name}.jpg"
+        cv2.imwrite(comb_out, combined)
+        output_files.append(comb_out)
+        print(f"Saved side-by-side: {comb_out}")
 
-    # 2. Ground Truth Image (Blue)
-    gt_vis = None
-    if ground_truth is not None:
-        gt_vis = draw_landmarks(img, ground_truth, color=(255, 0, 0)) # Blue for GT
-        gt_path = f"gt_{name}.jpg"
-        cv2.imwrite(gt_path, gt_vis)
-        print(f"Ground truth saved: {gt_path}")
-
-    return pred_vis, gt_vis
+    print(f"Success! Prediction images saved: {', '.join(output_files)}")
+    return ai_vis
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
