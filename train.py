@@ -10,7 +10,7 @@ import argparse
 np.random.seed(42)
 tf.random.set_seed(42)
 
-@tf.keras.saving.register_keras_serializable()
+@tf.keras.utils.register_keras_serializable()
 def wing_loss(y_true, y_pred, w=10.0, epsilon=2.0):
     """
     Wing Loss: designed for robust landmark regression.

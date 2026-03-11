@@ -57,7 +57,7 @@ def draw_landmarks(image, landmarks, color_scheme='ai'):
         cv2.circle(vis, (px, py), max(2, w // 64), color, -1)
     return vis
 
-@tf.keras.saving.register_keras_serializable()
+@tf.keras.utils.register_keras_serializable()
 def wing_loss(y_true, y_pred, w=10.0, epsilon=2.0):
     delta = tf.abs(y_true - y_pred)
     C = w - w * tf.math.log(1.0 + w / epsilon)
