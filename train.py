@@ -27,7 +27,7 @@ def build_model(input_shape=(128, 128, 3), num_landmarks=55):
     x = base_model(inputs)
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dropout(0.5)(x) 
-    outputs = layers.Dense(num_landmarks * 2, activation='linear')(x)
+    outputs = layers.Dense(num_landmarks * 2, activation='sigmoid')(x)
     
     model = models.Model(inputs=inputs, outputs=outputs)
 
@@ -92,12 +92,12 @@ def train(data_dir=None, epochs=100, batch_size=32):
     model.fit(
         train_gen,
         validation_data=val_gen,
-        epochs=min(10, EPOCHS),
+        epochs=min(30, EPOCHS),
         callbacks=callbacks
     )
 
     # Stage 2: Fine-tuning (Unfreeze Base)
-    if EPOCHS > 10:
+    if EPOCHS > 30:
         print("\nStage 2: Unfreezing base model for fine-tuning...")
         for layer in model.layers:
             if 'mobilenet' in layer.name:
@@ -113,7 +113,7 @@ def train(data_dir=None, epochs=100, batch_size=32):
         model.fit(
             train_gen,
             validation_data=val_gen,
-            epochs=EPOCHS - 10,
+            epochs=max(0, EPOCHS - 30),
             callbacks=callbacks
         )
 

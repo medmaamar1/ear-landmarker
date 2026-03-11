@@ -129,23 +129,39 @@ class EarGenerator(Sequence):
 
             # --- AUGMENTATION & NORMALIZATION ---
             
-            # 1. Random Flip (Horizontal)
-            do_flip = self.augment and np.random.random() > 0.5
-            if do_flip:
-                img = cv2.flip(img, 1)
-                lms[:, 0] = w - lms[:, 0]
+            # 1. Spatial Augmentation (Rotation, Shift, Zoom)
+            if self.augment:
+                # Rotation ±15 deg
+                angle = np.random.uniform(-15, 15)
+                # Zoom/Scale (0.9 to 1.1)
+                scale = np.random.uniform(0.9, 1.1)
+                # Translation/Shift (±10% of image size)
+                tx = np.random.uniform(-0.1, 0.1) * w
+                ty = np.random.uniform(-0.1, 0.1) * h
+                
+                # Get rotation matrix around image center
+                M = cv2.getRotationMatrix2D((w/2, h/2), angle, scale)
+                M[0, 2] += tx
+                M[1, 2] += ty
+                
+                # Apply transformation to image
+                img = cv2.warpAffine(img, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
+                
+                # Apply transformation to landmarks
+                # Extend points to [x, y, 1] for matrix multiplication
+                ones = np.ones(shape=(len(lms), 1))
+                pts_ext = np.hstack([lms, ones])
+                lms = (M @ pts_ext.T).T
 
             crop = img.copy()
             crop_h, crop_w, _ = crop.shape
             
-            # 2. Normalize Landmarks relative to FULL image dimensions (the camera frame)
-            # This teaches the AI to find the ear ANYWHERE in the frame, 
-            # exactly how the AR Try-On will feed it video frames!
+            # 2. Normalize Landmarks relative to FULL image dimensions
             lms_norm = lms.copy()
             lms_norm[:, 0] = lms[:, 0] / crop_w
             lms_norm[:, 1] = lms[:, 1] / crop_h
             
-            # 3. Color Jitter (Brightness/Contrast)
+            # 3. Color Jitter
             if self.augment:
                 alpha = np.random.uniform(0.8, 1.2) # contrast
                 beta = np.random.uniform(-20, 20)   # brightness
