@@ -49,11 +49,11 @@ def draw_landmarks(img, landmarks, color=(0, 255, 0), lobe_color=(0, 0, 255)):
         cv2.circle(vis_img, (px, py), max(2, w // 64), c, -1)
     return vis_img
 
-def predict_ear(image_input, model_path=None, output_path=None, save_separate=True):
+def predict_ear(image_input, model_path=None, output_path=None):
     """
-    Loads the trained Keras model, predicts landmarks on a single image (path or numpy array).
-    Saves a prediction image and a ground-truth image (if JSON exists) separately.
-    Returns the prediction image.
+    Loads the trained Keras model, predicts landmarks on a single image.
+    Returns: (pred_vis_img, gt_vis_img)
+    gt_vis_img will be None if no matching JSON is found.
     """
     # Use relative path from script location if model_path not provided or default used
     if model_path is None or model_path == 'ear_landmarker_final.keras':
@@ -65,7 +65,7 @@ def predict_ear(image_input, model_path=None, output_path=None, save_separate=Tr
             model_path = 'ear_landmarker_final.keras'
         else:
             print(f"Error: Model not found at {model_path}.")
-            return None
+            return None, None
 
     # Handle input type and ground truth detection
     ground_truth = None
@@ -73,10 +73,10 @@ def predict_ear(image_input, model_path=None, output_path=None, save_separate=Tr
     if isinstance(image_input, str):
         if not os.path.exists(image_input):
             print(f"Error: Image not found at {image_input}")
-            return None
+            return None, None
         img = cv2.imread(image_input)
         if img is None:
-            return None
+            return None, None
         
         base = os.path.basename(image_input)
         name, ext = os.path.splitext(base)
@@ -94,20 +94,21 @@ def predict_ear(image_input, model_path=None, output_path=None, save_separate=Tr
     preds = model.predict(input_tensor)[0]
     landmarks_pred = preds.reshape(-1, 2)
 
-    # 1. Prediction Image
+    # 1. Prediction Image (Green)
     pred_vis = draw_landmarks(img, landmarks_pred)
     pred_path = output_path if output_path else f"pred_{name}.jpg"
     cv2.imwrite(pred_path, pred_vis)
     print(f"Prediction saved: {pred_path}")
 
-    # 2. Ground Truth Image (if available)
+    # 2. Ground Truth Image (Blue)
+    gt_vis = None
     if ground_truth is not None:
         gt_vis = draw_landmarks(img, ground_truth, color=(255, 0, 0)) # Blue for GT
         gt_path = f"gt_{name}.jpg"
         cv2.imwrite(gt_path, gt_vis)
         print(f"Ground truth saved: {gt_path}")
 
-    return pred_vis
+    return pred_vis, gt_vis
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
