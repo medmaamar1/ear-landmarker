@@ -138,6 +138,9 @@ def train(data_dir=None, epochs=100, batch_size=32):
             px, py = int(pt[0] * IMG_SIZE), int(pt[1] * IMG_SIZE)
             color = (0, 0, 255) if j == 48 else (0, 255, 0) # Red for lobe
             cv2.circle(img_pred, (px, py), 2, color, -1)
+        
+        cv2.imwrite(f'results/v_pred_{i}.jpg', img_pred)
+        print(f"Saved prediction sample: results/v_pred_{i}.jpg")
             
         # Ground Truth image
         img_gt = (val_images[i] * 255).astype(np.uint8)
@@ -147,15 +150,9 @@ def train(data_dir=None, epochs=100, batch_size=32):
         for j, pt in enumerate(lms_gt):
             px, py = int(pt[0] * IMG_SIZE), int(pt[1] * IMG_SIZE)
             cv2.circle(img_gt, (px, py), 2, (255, 0, 0), -1) # Blue for GT
-            
-        # Labels
-        cv2.putText(img_gt, "GT", (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
-        cv2.putText(img_pred, "AI", (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
         
-        # Combine
-        combined = np.hstack((img_gt, img_pred))
-        cv2.imwrite(f'results/v_cmp_{i}.jpg', combined)
-        print(f"Saved comparison sample: results/v_cmp_{i}.jpg")
+        cv2.imwrite(f'results/v_gt_{i}.jpg', img_gt)
+        print(f"Saved ground truth sample: results/v_gt_{i}.jpg")
     
     print("\nNext step: tensorflowjs_converter --input_format keras ear_landmarker_final.keras ./tfjs_model")
 

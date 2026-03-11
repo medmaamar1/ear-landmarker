@@ -49,11 +49,11 @@ def draw_landmarks(img, landmarks, color=(0, 255, 0), lobe_color=(0, 0, 255)):
         cv2.circle(vis_img, (px, py), max(2, w // 64), c, -1)
     return vis_img
 
-def predict_ear(image_input, model_path=None, output_path=None, show_comparison=True):
+def predict_ear(image_input, model_path=None, output_path=None, save_separate=True):
     """
     Loads the trained Keras model, predicts landmarks on a single image (path or numpy array).
-    If a matching JSON exists, creates a side-by-side comparison.
-    Returns the processed image.
+    Saves a prediction image and a ground-truth image (if JSON exists) separately.
+    Returns the prediction image.
     """
     # Use relative path from script location if model_path not provided or default used
     if model_path is None or model_path == 'ear_landmarker_final.keras':
@@ -61,75 +61,53 @@ def predict_ear(image_input, model_path=None, output_path=None, show_comparison=
         model_path = os.path.join(script_dir, 'ear_landmarker_final.keras')
 
     if not os.path.exists(model_path):
-        # Check current directory as fallback
         if os.path.exists('ear_landmarker_final.keras'):
             model_path = 'ear_landmarker_final.keras'
         else:
-            print(f"Error: Model not found at {model_path}. Did you download it or finish training?")
+            print(f"Error: Model not found at {model_path}.")
             return None
 
     # Handle input type and ground truth detection
     ground_truth = None
+    name = "result"
     if isinstance(image_input, str):
         if not os.path.exists(image_input):
             print(f"Error: Image not found at {image_input}")
             return None
-        print(f"Reading image: {image_input}")
         img = cv2.imread(image_input)
         if img is None:
-            print("Error: Could not decode image.")
             return None
         
-        # Look for matching JSON
         base = os.path.basename(image_input)
         name, ext = os.path.splitext(base)
         json_path = os.path.join(os.path.dirname(image_input), name + ".json")
         ground_truth = parse_json_landmarks(json_path)
-
-        # Default output name based on input path
-        if output_path is None:
-            output_path = f"cmp_{name}.jpg" if show_comparison and ground_truth is not None else f"pred_{name}.jpg"
     else:
-        # Assume it's a numpy array (image object)
         img = image_input.copy()
-        if output_path is None:
-            output_path = "prediction_result.jpg"
 
-    print(f"Loading model: {model_path}")
+    # Model inference
     model = tf.keras.models.load_model(model_path)
     img_size = 128
-    h, w, _ = img.shape
-    
-    # Preprocess
     input_img = cv2.resize(img, (img_size, img_size))
     input_img_norm = input_img.astype(np.float32) / 255.0
     input_tensor = np.expand_dims(input_img_norm, axis=0)
-
-    # Predict
-    print("Running inference...")
     preds = model.predict(input_tensor)[0]
     landmarks_pred = preds.reshape(-1, 2)
 
-    # Draw prediction
+    # 1. Prediction Image
     pred_vis = draw_landmarks(img, landmarks_pred)
+    pred_path = output_path if output_path else f"pred_{name}.jpg"
+    cv2.imwrite(pred_path, pred_vis)
+    print(f"Prediction saved: {pred_path}")
 
-    final_vis = pred_vis
-    if show_comparison and ground_truth is not None:
-        print("Matching JSON found! Creating comparison...")
-        gt_vis = draw_landmarks(img, ground_truth, color=(255, 0, 0), lobe_color=(0, 0, 255)) # Blue for GT
-        
-        # Add labels
-        cv2.putText(gt_vis, "GROUND TRUTH (JSON)", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-        cv2.putText(pred_vis, "AI PREDICTION", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-        # Concatenate side-by-side
-        final_vis = np.hstack((gt_vis, pred_vis))
+    # 2. Ground Truth Image (if available)
+    if ground_truth is not None:
+        gt_vis = draw_landmarks(img, ground_truth, color=(255, 0, 0)) # Blue for GT
+        gt_path = f"gt_{name}.jpg"
+        cv2.imwrite(gt_path, gt_vis)
+        print(f"Ground truth saved: {gt_path}")
 
-    if output_path:
-        cv2.imwrite(output_path, final_vis)
-        print(f"Success! Result saved to: {output_path}")
-    
-    return final_vis
+    return pred_vis
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
