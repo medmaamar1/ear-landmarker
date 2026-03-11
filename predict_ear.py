@@ -57,6 +57,17 @@ def draw_landmarks(image, landmarks, color_scheme='ai'):
         cv2.circle(vis, (px, py), max(2, w // 64), color, -1)
     return vis
 
+@tf.keras.saving.register_keras_serializable()
+def wing_loss(y_true, y_pred, w=10.0, epsilon=2.0):
+    delta = tf.abs(y_true - y_pred)
+    C = w - w * tf.math.log(1.0 + w / epsilon)
+    loss = tf.where(
+        delta < w,
+        w * tf.math.log(1.0 + delta / epsilon),
+        delta - C
+    )
+    return tf.reduce_mean(loss, axis=-1)
+
 def predict_ear(image_input, model_path=None, output_path_prefix=None):
     """
     Loads model, predicts landmarks, and compares with JSON if available.
@@ -97,7 +108,7 @@ def predict_ear(image_input, model_path=None, output_path_prefix=None):
 
     # 3. Predict
     print(f"Loading model: {model_path}")
-    model = tf.keras.models.load_model(model_path)
+    model = tf.keras.models.load_model(model_path, custom_objects={'wing_loss': wing_loss})
     img_size = 128
     h, w, _ = img.shape
     
