@@ -10,9 +10,24 @@ import argparse
 np.random.seed(42)
 tf.random.set_seed(42)
 
+def wing_loss(y_true, y_pred, w=10.0, epsilon=2.0):
+    """
+    Wing Loss: designed for robust landmark regression.
+    It is more sensitive to small errors than MSE/L2.
+    """
+    delta = tf.abs(y_true - y_pred)
+    C = w - w * tf.math.log(1.0 + w / epsilon)
+    
+    loss = tf.where(
+        delta < w,
+        w * tf.math.log(1.0 + delta / epsilon),
+        delta - C
+    )
+    return tf.reduce_mean(loss, axis=-1)
+
 def build_model(input_shape=(128, 128, 3), num_landmarks=55):
     """
-    Builds a lightweight MobileNetV3-Small based coordinate regressor.
+    Builds a high-precision landmark regressor using Flatten instead of GAP.
     """
     inputs = Input(shape=input_shape)
     
@@ -24,16 +39,20 @@ def build_model(input_shape=(128, 128, 3), num_landmarks=55):
     # Freeze the base model initially
     base_model.trainable = False
     
-    x = base_model(inputs)
-    x = layers.GlobalAveragePooling2D()(x)
-    x = layers.Dropout(0.5)(x) 
+    # Important: Some papers suggest keeping BN in inference mode during fine-tuning
+    x = base_model(inputs, training=False)
+    
+    # FLATTEN preserves spatial awareness much better than GlobalAveragePooling
+    x = layers.Flatten()(x)
+    x = layers.Dense(512, activation='relu')(x)
+    x = layers.Dropout(0.3)(x) 
     outputs = layers.Dense(num_landmarks * 2, activation='sigmoid')(x)
     
     model = models.Model(inputs=inputs, outputs=outputs)
 
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
-        loss='mse',
+        loss=wing_loss,
         metrics=['mae']
     )
     return model
@@ -105,7 +124,7 @@ def train(data_dir=None, epochs=100, batch_size=32):
             
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-            loss='mse',
+            loss=wing_loss,
             metrics=['mae']
         )
 
