@@ -102,7 +102,7 @@ def predict_ear(image_input, model_path=None, output_path_prefix=None):
     h, w, _ = img.shape
     
     input_img = cv2.resize(img, (img_size, img_size))
-    input_img_norm = input_img.astype(np.float32) / 255.0
+    input_img_norm = input_img.astype(np.float32)
     input_tensor = np.expand_dims(input_img_norm, axis=0)
 
     print("Running inference...")

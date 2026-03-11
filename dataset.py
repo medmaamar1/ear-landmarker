@@ -153,7 +153,7 @@ class EarGenerator(Sequence):
             
             # 4. Resize
             img_resized = cv2.resize(crop, (self.img_size, self.img_size))
-            X.append(img_resized.astype(np.float32) / 255.0)
+            X.append(img_resized.astype(np.float32))
             Y.append(lms_norm.flatten().astype(np.float32))
             
         if not X:
