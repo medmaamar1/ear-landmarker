@@ -57,7 +57,7 @@ def build_heatmap_model(input_shape=(224, 224, 3), num_landmarks=NUM_LANDMARKS):
     x = layers.Conv2DTranspose(64, kernel_size=(4, 4), strides=(2, 2), padding='same', activation='relu')(x)
     x = layers.BatchNormalization()(x)
     
-    # 3. OUTPUT HEAD (55 Heatmaps)
+    # 3. OUTPUT HEAD — 2 Heatmaps (one per target landmark: 15, 19)
     outputs = layers.Conv2D(num_landmarks, kernel_size=(1, 1), activation='sigmoid')(x)
     
     model = models.Model(inputs=inputs, outputs=outputs)
@@ -144,7 +144,7 @@ def train(data_dir=None, epochs=100, batch_size=32):
         model.fit(
             train_gen,
             validation_data=val_gen,
-            epochs=max(0, EPOCHS - 30),
+            epochs=max(0, EPOCHS - 50),
             callbacks=callbacks
         )
 
@@ -178,8 +178,10 @@ def train(data_dir=None, epochs=100, batch_size=32):
 
         for j, pt in enumerate(pred_coords):
             px, py = int(pt[0] * IMG_SIZE), int(pt[1] * IMG_SIZE)
-            color = (0, 0, 255) if j == 48 else (0, 255, 0)
-            cv2.circle(img, (px, py), 2, color, -1)
+            lm_idx = TARGET_INDICES[j]  # 15 or 19
+            color = (0, 255, 0) if lm_idx == 15 else (0, 80, 255)  # Green=15, Orange=19
+            cv2.circle(img, (px, py), 4, color, -1)
+            cv2.putText(img, str(lm_idx), (px + 5, py), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
             
         cv2.imwrite(f'results/v_test_{i}.jpg', img)
         print(f"Saved validation sample: results/v_test_{i}.jpg")
