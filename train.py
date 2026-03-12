@@ -26,9 +26,10 @@ def wing_loss(y_true, y_pred, w=0.05, epsilon=0.01):
     )
     return tf.reduce_mean(loss, axis=-1)
 
-def build_model(input_shape=(224, 224, 3), num_landmarks=55):
+def build_heatmap_model(input_shape=(224, 224, 3), num_landmarks=55):
     """
-    Builds a high-precision landmark regressor using Flatten instead of GAP.
+    Builds a Tiny U-Net heatmap regressor using MobileNetV3 as the encoder.
+    Outputs a tensor of shape (56, 56, 55).
     """
     inputs = Input(shape=input_shape)
     
@@ -37,26 +38,33 @@ def build_model(input_shape=(224, 224, 3), num_landmarks=55):
         include_top=False,
         weights='imagenet'
     )
-    # Freeze the base model initially
     base_model.trainable = False
     
-    # Important: Some papers suggest keeping BN in inference mode during fine-tuning
+    # Pass inputs through the encoder (ignoring Batch Norm updates)
     x = base_model(inputs, training=False)
+    # MobileNetV3 output shape for 224x224 input is roughly (7, 7, 576)
     
-    # 1. Dimensionality Reduction: Drop from 576 channels to 128 to prevent a 29-Million parameter explosion!
-    x = layers.Conv2D(128, kernel_size=(1, 1), activation='relu')(x)
+    # 2. DECODER (UpSampling)
+    # 7x7 -> 14x14
+    x = layers.Conv2DTranspose(256, kernel_size=(4, 4), strides=(2, 2), padding='same', activation='relu')(x)
+    x = layers.BatchNormalization()(x)
     
-    # 2. FLATTEN preserves spatial awareness much better than GlobalAveragePooling
-    x = layers.Flatten()(x)
-    x = layers.Dense(512, activation='relu')(x)
-    x = layers.Dropout(0.3)(x) 
-    outputs = layers.Dense(num_landmarks * 2, activation='sigmoid')(x)
+    # 14x14 -> 28x28
+    x = layers.Conv2DTranspose(128, kernel_size=(4, 4), strides=(2, 2), padding='same', activation='relu')(x)
+    x = layers.BatchNormalization()(x)
+    
+    # 28x28 -> 56x56
+    x = layers.Conv2DTranspose(64, kernel_size=(4, 4), strides=(2, 2), padding='same', activation='relu')(x)
+    x = layers.BatchNormalization()(x)
+    
+    # 3. OUTPUT HEAD (55 Heatmaps)
+    outputs = layers.Conv2D(num_landmarks, kernel_size=(1, 1), activation='sigmoid')(x)
     
     model = models.Model(inputs=inputs, outputs=outputs)
 
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
-        loss=wing_loss,
+        loss='mse',
         metrics=['mae']
     )
     return model
@@ -75,7 +83,7 @@ def train(data_dir=None, epochs=100, batch_size=32):
     print(f"Epochs: {EPOCHS}, Batch Size: {BATCH_SIZE}")
 
     # Load dataset
-    dataset = EarDataset(DATA_DIR, img_size=IMG_SIZE)
+    dataset = EarDataset(DATA_DIR, img_size=IMG_SIZE, heatmap_size=56)
     train_gen, val_gen = dataset.get_generators(batch_size=BATCH_SIZE)
 
     if len(dataset.filenames) == 0:
@@ -83,7 +91,7 @@ def train(data_dir=None, epochs=100, batch_size=32):
         return
 
     # Build and train
-    model = build_model(input_shape=(IMG_SIZE, IMG_SIZE, 3))
+    model = build_heatmap_model(input_shape=(IMG_SIZE, IMG_SIZE, 3))
     
     checkpoint_path = "checkpoints/ear_landmarker_{epoch:02d}.keras"
     os.makedirs("checkpoints", exist_ok=True)
@@ -128,7 +136,7 @@ def train(data_dir=None, epochs=100, batch_size=32):
             
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-            loss=wing_loss,
+            loss='mse',
             metrics=['mae']
         )
 
@@ -148,15 +156,27 @@ def train(data_dir=None, epochs=100, batch_size=32):
     print("\n--- Visual Verification ---")
     os.makedirs('results', exist_ok=True)
     
-    val_images, val_lms = next(iter(val_gen))
+    val_images, val_heatmaps = next(iter(val_gen))
     preds = model.predict(val_images)
     
+    def extract_coords(heatmaps):
+        coords = []
+        for i in range(55):
+            hmap = heatmaps[:, :, i]
+            idx = np.unravel_index(np.argmax(hmap), hmap.shape)
+            x_norm = idx[1] / hmap.shape[1]
+            y_norm = idx[0] / hmap.shape[0]
+            coords.append([x_norm, y_norm])
+        return np.array(coords)
+
     for i in range(min(5, len(val_images))):
         img = val_images[i].astype(np.uint8)
         img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
         
-        lms = preds[i].reshape(-1, 2)
-        for j, pt in enumerate(lms):
+        pred_coords = extract_coords(preds[i])
+        true_coords = extract_coords(val_heatmaps[i])
+
+        for j, pt in enumerate(pred_coords):
             px, py = int(pt[0] * IMG_SIZE), int(pt[1] * IMG_SIZE)
             color = (0, 0, 255) if j == 48 else (0, 255, 0)
             cv2.circle(img, (px, py), 2, color, -1)

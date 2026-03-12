@@ -108,7 +108,7 @@ def predict_ear(image_input, model_path=None, output_path_prefix=None):
 
     # 3. Predict
     print(f"Loading model: {model_path}")
-    model = tf.keras.models.load_model(model_path, custom_objects={'wing_loss': wing_loss})
+    model = tf.keras.models.load_model(model_path, compile=False)
     img_size = 224
     h, w, _ = img.shape
     
@@ -119,7 +119,16 @@ def predict_ear(image_input, model_path=None, output_path_prefix=None):
 
     print("Running inference...")
     preds = model.predict(input_tensor)[0]
-    landmarks_ai = preds.reshape(-1, 2)
+    
+    # Extract coordinates from 56x56x55 heatmap
+    landmarks_ai = []
+    for i in range(55):
+        hmap = preds[:, :, i]
+        idx = np.unravel_index(np.argmax(hmap), hmap.shape)
+        x_norm = idx[1] / hmap.shape[1]
+        y_norm = idx[0] / hmap.shape[0]
+        landmarks_ai.append([x_norm, y_norm])
+    landmarks_ai = np.array(landmarks_ai)
 
     # 4. Generate Visuals
     ai_vis = draw_landmarks(img, landmarks_ai, color_scheme='ai')

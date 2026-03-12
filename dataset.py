@@ -5,9 +5,10 @@ import tensorflow as tf
 from tensorflow.keras.utils import Sequence
 
 class EarDataset:
-    def __init__(self, data_dir, img_size=224, test_split=0.2):
+    def __init__(self, data_dir, img_size=224, heatmap_size=56, test_split=0.2):
         self.data_dir = data_dir
         self.img_size = img_size
+        self.heatmap_size = heatmap_size
         self.test_split = test_split
         
         # Flexibly detect directory structure
@@ -46,18 +47,19 @@ class EarDataset:
         val_idxs = indices[split:]
         
         # Training gets augmentation, validation does not
-        train_gen = EarGenerator(self.filenames, train_idxs, self.images_dir, self.landmarks_dir, self.img_size, batch_size, augment=True)
-        val_gen = EarGenerator(self.filenames, val_idxs, self.images_dir, self.landmarks_dir, self.img_size, batch_size, augment=False)
+        train_gen = EarGenerator(self.filenames, train_idxs, self.images_dir, self.landmarks_dir, self.img_size, self.heatmap_size, batch_size, augment=True)
+        val_gen = EarGenerator(self.filenames, val_idxs, self.images_dir, self.landmarks_dir, self.img_size, self.heatmap_size, batch_size, augment=False)
         
         return train_gen, val_gen
 class EarGenerator(Sequence):
-    def __init__(self, filenames, indices, img_dir, lm_dir, img_size, batch_size, augment=False, **kwargs):
+    def __init__(self, filenames, indices, img_dir, lm_dir, img_size, heatmap_size, batch_size, augment=False, **kwargs):
         super().__init__(**kwargs)
         self.filenames = filenames
         self.indices = indices
         self.img_dir = img_dir
         self.lm_dir = lm_dir
         self.img_size = img_size
+        self.heatmap_size = heatmap_size
         self.batch_size = batch_size
         self.augment = augment
         
@@ -161,16 +163,36 @@ class EarGenerator(Sequence):
             lms_norm[:, 0] = lms[:, 0] / crop_w
             lms_norm[:, 1] = lms[:, 1] / crop_h
             
-            # 3. Color Jitter
+            # 3. Create Heatmaps (56x56)
+            heatmaps = np.zeros((self.heatmap_size, self.heatmap_size, 55), dtype=np.float32)
+            sigma = 1.5 # Spread of the gaussian blob
+            
+            for i in range(55):
+                px = int(lms_norm[i, 0] * self.heatmap_size)
+                py = int(lms_norm[i, 1] * self.heatmap_size)
+                
+                # Check bounds
+                if px < 0 or px >= self.heatmap_size or py < 0 or py >= self.heatmap_size:
+                    continue
+                    
+                # Create a simple 2D Gaussian around the point
+                # Optimized grid calculation
+                y_grid, x_grid = np.ogrid[-py:self.heatmap_size-py, -px:self.heatmap_size-px]
+                hmap = np.exp(-(x_grid*x_grid + y_grid*y_grid) / (2 * sigma * sigma))
+                # Normalize peak to 1.0
+                hmap[hmap < 0.01] = 0
+                heatmaps[:, :, i] = hmap
+            
+            # 4. Color Jitter
             if self.augment:
                 alpha = np.random.uniform(0.8, 1.2) # contrast
                 beta = np.random.uniform(-20, 20)   # brightness
                 crop = cv2.convertScaleAbs(crop, alpha=alpha, beta=beta)
             
-            # 4. Resize
+            # 5. Resize Image
             img_resized = cv2.resize(crop, (self.img_size, self.img_size))
             X.append(img_resized.astype(np.float32))
-            Y.append(lms_norm.flatten().astype(np.float32))
+            Y.append(heatmaps)
             
         if not X:
             # Instead of zeros, which ruins training, return the next batch
