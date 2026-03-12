@@ -118,17 +118,17 @@ def train(data_dir=None, epochs=100, batch_size=32):
         )
     ]
 
-    # Stage 1: Warm-up (Frozen Base)
-    print("\nStage 1: Warming up the head (Base Frozen)...")
+    # Stage 1: Warm-up (Frozen Base) — 50 epochs
+    print("\nStage 1: Warming up the decoder head (Base Frozen, 50 epochs)...")
     model.fit(
         train_gen,
         validation_data=val_gen,
-        epochs=min(30, EPOCHS),
+        epochs=min(50, EPOCHS),
         callbacks=callbacks
     )
 
     # Stage 2: Fine-tuning (Unfreeze Base)
-    if EPOCHS > 30:
+    if EPOCHS > 50:
         print("\nStage 2: Unfreezing base model for fine-tuning...")
         for layer in model.layers:
             if 'mobilenet' in layer.name:
