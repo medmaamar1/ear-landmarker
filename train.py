@@ -1,7 +1,7 @@
 import os
 import tensorflow as tf
 from tensorflow.keras import layers, models, Input
-from dataset import EarDataset
+from dataset import EarDataset, TARGET_INDICES, NUM_LANDMARKS
 import numpy as np
 import cv2
 import argparse
@@ -26,10 +26,10 @@ def wing_loss(y_true, y_pred, w=0.05, epsilon=0.01):
     )
     return tf.reduce_mean(loss, axis=-1)
 
-def build_heatmap_model(input_shape=(224, 224, 3), num_landmarks=55):
+def build_heatmap_model(input_shape=(224, 224, 3), num_landmarks=NUM_LANDMARKS):
     """
     Builds a Tiny U-Net heatmap regressor using MobileNetV3 as the encoder.
-    Outputs a tensor of shape (56, 56, 55).
+    Outputs a tensor of shape (56, 56, NUM_LANDMARKS).
     """
     inputs = Input(shape=input_shape)
     
@@ -161,7 +161,7 @@ def train(data_dir=None, epochs=100, batch_size=32):
     
     def extract_coords(heatmaps):
         coords = []
-        for i in range(55):
+        for i in range(NUM_LANDMARKS):
             hmap = heatmaps[:, :, i]
             idx = np.unravel_index(np.argmax(hmap), hmap.shape)
             x_norm = idx[1] / hmap.shape[1]

@@ -4,6 +4,10 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras.utils import Sequence
 
+# Only predict these 2 landmark indices
+TARGET_INDICES = [15, 19]
+NUM_LANDMARKS  = len(TARGET_INDICES)  # 2
+
 class EarDataset:
     def __init__(self, data_dir, img_size=224, heatmap_size=56, test_split=0.2):
         self.data_dir = data_dir
@@ -163,25 +167,21 @@ class EarGenerator(Sequence):
             lms_norm[:, 0] = lms[:, 0] / crop_w
             lms_norm[:, 1] = lms[:, 1] / crop_h
             
-            # 3. Create Heatmaps (56x56)
-            heatmaps = np.zeros((self.heatmap_size, self.heatmap_size, 55), dtype=np.float32)
-            sigma = 1.5 # Spread of the gaussian blob
+            # 3. Create Heatmaps  (56x56x2 — one per target landmark)
+            heatmaps = np.zeros((self.heatmap_size, self.heatmap_size, NUM_LANDMARKS), dtype=np.float32)
+            sigma = 1.5
             
-            for i in range(55):
-                px = int(lms_norm[i, 0] * self.heatmap_size)
-                py = int(lms_norm[i, 1] * self.heatmap_size)
+            for ch, lm_idx in enumerate(TARGET_INDICES):
+                px = int(lms_norm[lm_idx, 0] * self.heatmap_size)
+                py = int(lms_norm[lm_idx, 1] * self.heatmap_size)
                 
-                # Check bounds
                 if px < 0 or px >= self.heatmap_size or py < 0 or py >= self.heatmap_size:
                     continue
                     
-                # Create a simple 2D Gaussian around the point
-                # Optimized grid calculation
                 y_grid, x_grid = np.ogrid[-py:self.heatmap_size-py, -px:self.heatmap_size-px]
                 hmap = np.exp(-(x_grid*x_grid + y_grid*y_grid) / (2 * sigma * sigma))
-                # Normalize peak to 1.0
                 hmap[hmap < 0.01] = 0
-                heatmaps[:, :, i] = hmap
+                heatmaps[:, :, ch] = hmap
             
             # 4. Color Jitter
             if self.augment:
