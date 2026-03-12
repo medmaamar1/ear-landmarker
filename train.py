@@ -71,7 +71,7 @@ def build_heatmap_model(input_shape=(224, 224, 3), num_landmarks=55):
 
 def train(data_dir=None, epochs=100, batch_size=32):
     # Configuration
-    IMG_SIZE = 128
+    IMG_SIZE = 224
     EPOCHS = epochs
     BATCH_SIZE = batch_size
     
