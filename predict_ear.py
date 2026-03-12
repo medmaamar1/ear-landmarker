@@ -5,6 +5,9 @@ import tensorflow as tf
 import sys
 import json
 
+# The 2 landmark indices this model predicts
+TARGET_INDICES = [15, 19]
+
 def load_ground_truth(json_path):
     """
     Parses LabelMe JSON to get landmark coordinates.
@@ -35,26 +38,30 @@ def load_ground_truth(json_path):
         print(f"Error loading JSON: {e}")
     return None
 
-def draw_landmarks(image, landmarks, color_scheme='ai'):
+def draw_landmarks(image, landmarks, color_scheme='ai', indices=None):
     """
     Draws landmarks on an image.
-    color_scheme: 'ai' (Green/Red) or 'truth' (Blue/Yellow)
+    landmarks: (N, 2) array of normalized [0,1] or pixel coordinates.
+    indices:   optional list of original landmark indices for labeling.
+    color_scheme: 'ai' (Green/Orange) or 'truth' (Blue/Cyan)
     """
     vis = image.copy()
     h, w, _ = vis.shape
-    
-    is_normalized = np.max(landmarks) <= 1.2 # heuristic to check if [0, 1] range
+    is_normalized = np.max(landmarks) <= 1.2
     
     for i, pt in enumerate(landmarks):
         px = int(pt[0] * w) if is_normalized else int(pt[0])
         py = int(pt[1] * h) if is_normalized else int(pt[1])
+        lm_idx = indices[i] if indices is not None else i
         
         if color_scheme == 'ai':
-            color = (0, 0, 255) if i == 48 else (0, 255, 0) # Red for lobe, Green for others
+            color = (0, 255, 0) if lm_idx == 15 else (0, 80, 255)  # Green=15, Orange=19
         else:
-            color = (0, 255, 255) if i == 48 else (255, 0, 0) # Purple/Blue for truth
+            color = (255, 255, 0) if lm_idx == 15 else (255, 0, 255)  # Cyan=15, Magenta=19
             
-        cv2.circle(vis, (px, py), max(2, w // 64), color, -1)
+        cv2.circle(vis, (px, py), max(3, w // 64), color, -1)
+        cv2.putText(vis, str(lm_idx), (px + 5, py),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1, cv2.LINE_AA)
     return vis
 
 @tf.keras.utils.register_keras_serializable()
@@ -120,9 +127,9 @@ def predict_ear(image_input, model_path=None, output_path_prefix=None):
     print("Running inference...")
     preds = model.predict(input_tensor)[0]
     
-    # Extract coordinates from 56x56x55 heatmap
+    # Extract coordinates from 56x56x2 heatmap (2 channels: landmarks 15, 19)
     landmarks_ai = []
-    for i in range(55):
+    for i in range(len(TARGET_INDICES)):
         hmap = preds[:, :, i]
         idx = np.unravel_index(np.argmax(hmap), hmap.shape)
         x_norm = idx[1] / hmap.shape[1]
@@ -131,7 +138,7 @@ def predict_ear(image_input, model_path=None, output_path_prefix=None):
     landmarks_ai = np.array(landmarks_ai)
 
     # 4. Generate Visuals
-    ai_vis = draw_landmarks(img, landmarks_ai, color_scheme='ai')
+    ai_vis = draw_landmarks(img, landmarks_ai, color_scheme='ai', indices=TARGET_INDICES)
     
     output_files = []
     
@@ -140,15 +147,16 @@ def predict_ear(image_input, model_path=None, output_path_prefix=None):
     cv2.imwrite(ai_out, ai_vis)
     output_files.append(ai_out)
     
-    # Save Truth Result if available
-    if json_data is not None:
-        truth_vis = draw_landmarks(img, json_data, color_scheme='truth')
+    # Save Truth Result if available (draw only the 2 target points from JSON)
+    if json_data is not None and len(json_data) > max(TARGET_INDICES):
+        truth_pts = np.array([json_data[i] for i in TARGET_INDICES])  # (2, 2)
+        truth_vis = draw_landmarks(img, truth_pts, color_scheme='truth', indices=TARGET_INDICES)
         truth_out = f"truth_{name}.jpg"
         cv2.imwrite(truth_out, truth_vis)
         output_files.append(truth_out)
         print(f"Ground truth found! Saved comparison: {truth_out}")
         
-        # Optional: Combine them side-by-side
+        # Combine side-by-side
         combined = np.hstack((truth_vis, ai_vis))
         comb_out = f"compare_{name}.jpg"
         cv2.imwrite(comb_out, combined)
